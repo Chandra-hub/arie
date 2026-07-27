@@ -1,0 +1,50 @@
+services:
+  arie:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      PORT: 3000
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      STORAGE_ADAPTER: postgres
+      DATABASE_URL: postgresql://arie:arie@db:5432/arie
+      API_KEY_SALT: ${API_KEY_SALT:-local-dev-salt-change-in-production}
+      WEEKLY_CRON_SCHEDULE: "0 2 * * 0"
+      CHANGE_DETECTION_INTERVAL_HOURS: "6"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./src:/app/src          # Hot-reload in dev (use npm run dev instead)
+    restart: unless-stopped
+
+  arie-web:
+    build: ./arie-web
+    ports:
+      - "3001:3001"
+    environment:
+      NEXT_PUBLIC_ARIE_API_URL: http://arie:3000/api/v1
+    depends_on:
+      - arie
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: arie
+      POSTGRES_PASSWORD: arie
+      POSTGRES_DB: arie
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U arie"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:
