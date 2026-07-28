@@ -1,0 +1,436 @@
+openapi: 3.0.0
+info:
+  title: ARIE — Agentic Regulatory Intelligence Engine
+  description: >
+    Cloud-agnostic multi-tenant agentic AI platform that monitors government
+    regulatory websites globally, detects changes, normalises rules via Claude AI,
+    and exposes compliance intelligence as a REST API.
+  version: 1.0.0
+  contact:
+    name: ARIE Support
+
+servers:
+  - url: https://{host}/api/v1
+    variables:
+      host:
+        default: your-arie-app.azurecontainerapps.io
+        description: ARIE engine host (Azure Container Apps URL)
+
+security:
+  - ApiKeyAuth: []
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+
+  schemas:
+    Regulation:
+      type: object
+      properties:
+        id:             { type: string }
+        jurisdictionCode: { type: string, example: GB }
+        title:          { type: string }
+        body:           { type: string, description: Regulatory body name }
+        sector:         { type: string, enum: [water, chemical, manufacturing, energy, waste, transportation, mining, general] }
+        summary:        { type: string }
+        keyObligations:
+          type: array
+          items: { type: string }
+        effectiveDate:  { type: string, format: date }
+        penaltyFramework:
+          type: object
+          properties:
+            maxFine:           { type: number }
+            currency:          { type: string, example: GBP }
+            criminalLiability: { type: boolean }
+            notes:             { type: string }
+        sourceUrl:       { type: string }
+        changeDetected:  { type: boolean }
+        changeHistory:
+          type: array
+          items:
+            type: object
+            properties:
+              detectedAt: { type: string, format: date-time }
+              summary:    { type: string }
+        updatedAt: { type: string, format: date-time }
+
+    AgentRun:
+      type: object
+      properties:
+        runId:       { type: string }
+        trigger:     { type: string, enum: [scheduled, manual, event] }
+        jurisdictions:
+          type: array
+          items: { type: string }
+        status:      { type: string, enum: [queued, running, completed, failed] }
+        regulationsUpdated: { type: integer }
+        changesDetected:    { type: integer }
+        error:       { type: string }
+        startedAt:   { type: string, format: date-time }
+        completedAt: { type: string, format: date-time }
+
+    ComplianceFinding:
+      type: object
+      properties:
+        jurisdiction: { type: string }
+        regulation:   { type: string }
+        status:       { type: string }
+        details:      { type: string }
+        action:       { type: string }
+        penaltyIfNonCompliant: { type: string }
+
+    ComplianceReport:
+      type: object
+      properties:
+        status: { type: string, enum: [compliant, non_compliant, review_required] }
+        checkedJurisdictions:
+          type: array
+          items: { type: string }
+        findings:
+          type: array
+          items: { $ref: '#/components/schemas/ComplianceFinding' }
+        generatedAt: { type: string, format: date-time }
+
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+
+paths:
+  /health:
+    get:
+      operationId: GetHealth
+      summary: Health check
+      security: []
+      tags: [System]
+      responses:
+        '200':
+          description: System healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:    { type: string, example: ok }
+                  version:   { type: string, example: 1.0.0 }
+                  timestamp: { type: string, format: date-time }
+
+  /orgs:
+    post:
+      operationId: RegisterOrg
+      summary: Register a new organisation
+      security: []
+      tags: [Organisations]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, jurisdictionFootprint, sectors]
+              properties:
+                name:
+                  type: string
+                  example: Acme Chemical Corp
+                jurisdictionFootprint:
+                  type: array
+                  items: { type: string }
+                  example: [GB, US, AU, DE]
+                sectors:
+                  type: array
+                  items: { type: string }
+                  example: [chemical, water, manufacturing]
+                webhookUrl:
+                  type: string
+                  example: https://your-system.com/webhooks/regulations
+      responses:
+        '201':
+          description: Organisation registered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orgId:   { type: string }
+                  apiKey:  { type: string, description: Store securely — shown once only }
+                  message: { type: string }
+        '400': { description: Validation error, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /orgs/me:
+    get:
+      operationId: GetMyOrg
+      summary: Get current organisation configuration
+      tags: [Organisations]
+      responses:
+        '200':
+          description: Organisation config
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orgId:                 { type: string }
+                  name:                  { type: string }
+                  jurisdictionFootprint: { type: array, items: { type: string } }
+                  sectors:               { type: array, items: { type: string } }
+                  webhookUrl:            { type: string }
+                  createdAt:             { type: string, format: date-time }
+                  updatedAt:             { type: string, format: date-time }
+        '401': { description: Unauthorized }
+
+    patch:
+      operationId: UpdateMyOrg
+      summary: Update organisation configuration
+      tags: [Organisations]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                jurisdictionFootprint: { type: array, items: { type: string } }
+                sectors:               { type: array, items: { type: string } }
+                webhookUrl:            { type: string }
+      responses:
+        '200':
+          description: Updated organisation
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  orgId:                 { type: string }
+                  jurisdictionFootprint: { type: array, items: { type: string } }
+                  updatedAt:             { type: string, format: date-time }
+
+  /jurisdictions:
+    get:
+      operationId: ListJurisdictions
+      summary: List all globally supported jurisdictions
+      tags: [Jurisdictions]
+      responses:
+        '200':
+          description: Jurisdiction list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jurisdictions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        code:              { type: string, example: GB }
+                        name:              { type: string, example: United Kingdom }
+                        regulatoryBodies:  { type: array, items: { type: string } }
+                        sectors:           { type: array, items: { type: string } }
+                        rssFeedAvailable:  { type: boolean }
+                        inOrgFootprint:    { type: boolean }
+                  total: { type: integer }
+
+  /jurisdictions/{code}/regulations:
+    get:
+      operationId: GetJurisdictionRegulations
+      summary: Get regulations for a specific jurisdiction
+      tags: [Jurisdictions]
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string, example: GB }
+        - name: sector
+          in: query
+          schema: { type: string }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 100 }
+      responses:
+        '200':
+          description: Regulations for jurisdiction
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  jurisdiction: { type: string }
+                  regulations:
+                    type: array
+                    items: { $ref: '#/components/schemas/Regulation' }
+                  total: { type: integer }
+                  page:  { type: integer }
+                  limit: { type: integer }
+
+  /regulations:
+    get:
+      operationId: ListRegulations
+      summary: Query regulations across all jurisdictions in footprint
+      tags: [Regulations]
+      parameters:
+        - name: sector
+          in: query
+          schema: { type: string, example: chemical }
+        - name: jurisdiction
+          in: query
+          schema: { type: string, example: GB }
+        - name: changedSince
+          in: query
+          schema: { type: string, format: date-time }
+        - name: search
+          in: query
+          schema: { type: string }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 20, maximum: 100 }
+      responses:
+        '200':
+          description: Paginated regulation list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  regulations:
+                    type: array
+                    items: { $ref: '#/components/schemas/Regulation' }
+                  total: { type: integer }
+                  page:  { type: integer }
+                  limit: { type: integer }
+
+  /regulations/{id}:
+    get:
+      operationId: GetRegulation
+      summary: Get full details of a single regulation
+      tags: [Regulations]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Regulation detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Regulation' }
+        '404': { description: Not found }
+
+  /compliance/check:
+    post:
+      operationId: CheckCompliance
+      summary: Check an operational scenario against relevant regulations
+      tags: [Compliance]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [scenario]
+              properties:
+                scenario:
+                  type: string
+                  example: We discharge 500m3/day of treated wastewater into a river at our UK facility.
+                jurisdictions:
+                  type: array
+                  items: { type: string }
+                  example: [GB, DE]
+                sector:
+                  type: string
+                  example: water
+      responses:
+        '200':
+          description: Compliance report
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  complianceReport: { $ref: '#/components/schemas/ComplianceReport' }
+
+  /agent/run:
+    post:
+      operationId: TriggerAgentRun
+      summary: Manually trigger an agent fetch run
+      tags: [Agent]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                jurisdictions:
+                  type: array
+                  items: { type: string }
+                  description: Omit to run full footprint
+                force:
+                  type: boolean
+                  default: false
+                  description: Bypass change detection and force full fetch
+      responses:
+        '202':
+          description: Run queued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runId:             { type: string }
+                  status:            { type: string, example: queued }
+                  message:           { type: string }
+                  estimatedDuration: { type: string, example: 2-5 minutes }
+
+  /agent/runs:
+    get:
+      operationId: ListAgentRuns
+      summary: List agent run history
+      tags: [Agent]
+      responses:
+        '200':
+          description: Run history
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runs:
+                    type: array
+                    items: { $ref: '#/components/schemas/AgentRun' }
+
+  /agent/runs/{runId}:
+    get:
+      operationId: GetAgentRun
+      summary: Get status and results of a specific agent run
+      tags: [Agent]
+      parameters:
+        - name: runId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Agent run detail
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AgentRun' }
+        '404': { description: Not found }
+
+tags:
+  - name: System
+  - name: Organisations
+  - name: Jurisdictions
+  - name: Regulations
+  - name: Compliance
+  - name: Agent

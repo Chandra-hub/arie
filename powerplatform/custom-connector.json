@@ -1,0 +1,341 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "ARIE Regulatory Intelligence",
+    "description": "Agentic Regulatory Intelligence Engine — monitor global regulations, detect changes, and check compliance using AI.",
+    "version": "1.0"
+  },
+  "host": "your-arie-engine.azurecontainerapps.io",
+  "basePath": "/api/v1",
+  "schemes": ["https"],
+  "consumes": ["application/json"],
+  "produces": ["application/json"],
+  "securityDefinitions": {
+    "api_key": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "X-Api-Key"
+    }
+  },
+  "security": [{ "api_key": [] }],
+  "paths": {
+    "/health": {
+      "get": {
+        "operationId": "GetHealth",
+        "summary": "Health Check",
+        "description": "Check if the ARIE engine is running",
+        "security": [],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "status":    { "type": "string" },
+                "version":   { "type": "string" },
+                "timestamp": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/regulations": {
+      "get": {
+        "operationId": "ListRegulations",
+        "summary": "List Regulations",
+        "description": "Query all regulations across your organisation's jurisdiction footprint",
+        "parameters": [
+          { "name": "sector",       "in": "query", "type": "string", "description": "Filter by sector e.g. water, chemical, manufacturing" },
+          { "name": "jurisdiction", "in": "query", "type": "string", "description": "Filter by jurisdiction code e.g. GB, US" },
+          { "name": "search",       "in": "query", "type": "string", "description": "Full-text search across regulation titles" },
+          { "name": "changedSince", "in": "query", "type": "string", "description": "ISO datetime — return only regulations updated after this date" },
+          { "name": "page",         "in": "query", "type": "integer","description": "Page number (default 1)" },
+          { "name": "limit",        "in": "query", "type": "integer","description": "Results per page (default 20, max 100)" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated regulation list",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "total": { "type": "integer" },
+                "page":  { "type": "integer" },
+                "limit": { "type": "integer" },
+                "regulations": {
+                  "type": "array",
+                  "items": { "$ref": "#/definitions/Regulation" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/regulations/{id}": {
+      "get": {
+        "operationId": "GetRegulation",
+        "summary": "Get Regulation Detail",
+        "description": "Get full details of a single regulation including obligations and penalty framework",
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "type": "string", "description": "Regulation ID" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Regulation detail",
+            "schema": { "$ref": "#/definitions/Regulation" }
+          }
+        }
+      }
+    },
+    "/jurisdictions": {
+      "get": {
+        "operationId": "ListJurisdictions",
+        "summary": "List Jurisdictions",
+        "description": "List all globally supported jurisdictions and whether they are in your footprint",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Jurisdiction list",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "total": { "type": "integer" },
+                "jurisdictions": {
+                  "type": "array",
+                  "items": { "$ref": "#/definitions/Jurisdiction" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/compliance/check": {
+      "post": {
+        "operationId": "CheckCompliance",
+        "summary": "Check Compliance",
+        "description": "Submit an operational scenario and receive a structured AI-generated compliance report against your regulations",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": ["scenario"],
+              "properties": {
+                "scenario": {
+                  "type": "string",
+                  "description": "Natural language description of the operational scenario to check",
+                  "x-ms-summary": "Scenario"
+                },
+                "jurisdictions": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Jurisdiction codes to check against. Omit to use full footprint.",
+                  "x-ms-summary": "Jurisdictions"
+                },
+                "sector": {
+                  "type": "string",
+                  "description": "Filter to a specific sector",
+                  "x-ms-summary": "Sector"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Compliance report",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "complianceReport": { "$ref": "#/definitions/ComplianceReport" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent/run": {
+      "post": {
+        "operationId": "TriggerAgentRun",
+        "summary": "Trigger Agent Run",
+        "description": "Manually trigger the regulatory intelligence agent to fetch and update regulations",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "jurisdictions": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Specific jurisdictions to fetch. Omit for full footprint.",
+                  "x-ms-summary": "Jurisdictions"
+                },
+                "force": {
+                  "type": "boolean",
+                  "description": "Bypass change detection and force a full fetch",
+                  "x-ms-summary": "Force"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Run queued",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "runId":             { "type": "string" },
+                "status":            { "type": "string" },
+                "message":           { "type": "string" },
+                "estimatedDuration": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent/runs": {
+      "get": {
+        "operationId": "ListAgentRuns",
+        "summary": "List Agent Runs",
+        "description": "Get history of all agent runs for your organisation",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Run history",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "runs": {
+                  "type": "array",
+                  "items": { "$ref": "#/definitions/AgentRun" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/agent/runs/{runId}": {
+      "get": {
+        "operationId": "GetAgentRun",
+        "summary": "Get Agent Run Status",
+        "description": "Poll the status of a specific agent run",
+        "parameters": [
+          { "name": "runId", "in": "path", "required": true, "type": "string", "description": "Run ID returned from TriggerAgentRun" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Agent run detail",
+            "schema": { "$ref": "#/definitions/AgentRun" }
+          }
+        }
+      }
+    },
+    "/orgs/me": {
+      "get": {
+        "operationId": "GetMyOrg",
+        "summary": "Get Organisation",
+        "description": "Get current organisation configuration including jurisdiction footprint",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Organisation config",
+            "schema": { "$ref": "#/definitions/OrgConfig" }
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "Regulation": {
+      "type": "object",
+      "properties": {
+        "id":               { "type": "string", "x-ms-summary": "ID" },
+        "jurisdictionCode": { "type": "string", "x-ms-summary": "Jurisdiction" },
+        "title":            { "type": "string", "x-ms-summary": "Title" },
+        "body":             { "type": "string", "x-ms-summary": "Regulatory Body" },
+        "sector":           { "type": "string", "x-ms-summary": "Sector" },
+        "summary":          { "type": "string", "x-ms-summary": "Summary" },
+        "keyObligations":   { "type": "array", "items": { "type": "string" }, "x-ms-summary": "Key Obligations" },
+        "effectiveDate":    { "type": "string", "x-ms-summary": "Effective Date" },
+        "changeDetected":   { "type": "boolean", "x-ms-summary": "Change Detected" },
+        "sourceUrl":        { "type": "string", "x-ms-summary": "Source URL" },
+        "updatedAt":        { "type": "string", "x-ms-summary": "Last Updated" },
+        "penaltyFramework": {
+          "type": "object",
+          "x-ms-summary": "Penalty Framework",
+          "properties": {
+            "maxFine":           { "type": "number",  "x-ms-summary": "Max Fine" },
+            "currency":          { "type": "string",  "x-ms-summary": "Currency" },
+            "criminalLiability": { "type": "boolean", "x-ms-summary": "Criminal Liability" },
+            "notes":             { "type": "string",  "x-ms-summary": "Notes" }
+          }
+        }
+      }
+    },
+    "Jurisdiction": {
+      "type": "object",
+      "properties": {
+        "code":             { "type": "string",  "x-ms-summary": "Code" },
+        "name":             { "type": "string",  "x-ms-summary": "Name" },
+        "regulatoryBodies": { "type": "array", "items": { "type": "string" }, "x-ms-summary": "Regulatory Bodies" },
+        "rssFeedAvailable": { "type": "boolean", "x-ms-summary": "RSS Feed Available" },
+        "inOrgFootprint":   { "type": "boolean", "x-ms-summary": "In Your Footprint" }
+      }
+    },
+    "AgentRun": {
+      "type": "object",
+      "properties": {
+        "runId":               { "type": "string",  "x-ms-summary": "Run ID" },
+        "trigger":             { "type": "string",  "x-ms-summary": "Trigger" },
+        "status":              { "type": "string",  "x-ms-summary": "Status" },
+        "regulationsUpdated":  { "type": "integer", "x-ms-summary": "Regulations Updated" },
+        "changesDetected":     { "type": "integer", "x-ms-summary": "Changes Detected" },
+        "startedAt":           { "type": "string",  "x-ms-summary": "Started At" },
+        "completedAt":         { "type": "string",  "x-ms-summary": "Completed At" },
+        "error":               { "type": "string",  "x-ms-summary": "Error" }
+      }
+    },
+    "ComplianceReport": {
+      "type": "object",
+      "properties": {
+        "status": { "type": "string", "x-ms-summary": "Overall Status" },
+        "checkedJurisdictions": { "type": "array", "items": { "type": "string" }, "x-ms-summary": "Checked Jurisdictions" },
+        "generatedAt": { "type": "string", "x-ms-summary": "Generated At" },
+        "findings": {
+          "type": "array",
+          "x-ms-summary": "Findings",
+          "items": {
+            "type": "object",
+            "properties": {
+              "jurisdiction":           { "type": "string", "x-ms-summary": "Jurisdiction" },
+              "regulation":             { "type": "string", "x-ms-summary": "Regulation" },
+              "status":                 { "type": "string", "x-ms-summary": "Status" },
+              "details":                { "type": "string", "x-ms-summary": "Details" },
+              "action":                 { "type": "string", "x-ms-summary": "Action Required" },
+              "penaltyIfNonCompliant":  { "type": "string", "x-ms-summary": "Penalty If Non-Compliant" }
+            }
+          }
+        }
+      }
+    },
+    "OrgConfig": {
+      "type": "object",
+      "properties": {
+        "orgId":                 { "type": "string", "x-ms-summary": "Org ID" },
+        "name":                  { "type": "string", "x-ms-summary": "Name" },
+        "jurisdictionFootprint": { "type": "array", "items": { "type": "string" }, "x-ms-summary": "Jurisdiction Footprint" },
+        "sectors":               { "type": "array", "items": { "type": "string" }, "x-ms-summary": "Sectors" }
+      }
+    }
+  }
+}
